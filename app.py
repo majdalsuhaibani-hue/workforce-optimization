@@ -62,7 +62,14 @@ def solve():
         "external_hires": hires_df.to_dict(orient="records"),
     }
 
+from fastapi.responses import HTMLResponse
 
+@app.get("/", response_class=HTMLResponse)
+def home():
+    return """
+    <h2>Workforce Optimization API is running 🚀</h2>
+    <p>Go to /ui to open the dashboard.</p>
+    """
 @app.get("/ui", response_class=HTMLResponse)
 def ui():
     return """

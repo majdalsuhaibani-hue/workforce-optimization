@@ -2,7 +2,8 @@ import pandas as pd
 import pulp as pl
 
 def solve_model(volunteers_df, preferences_df, skills_df,
-                availability_df, demand_df, costs_df, hire_costs_df):
+                availability_df, demand_df, costs_df, hire_costs_df,
+                w_cover=0.35, w_pref=0.25, w_cost=0.20, w_hire=0.20):
 
     vol = volunteers_df["volunteer_id"].astype(str).tolist()
     tasks = preferences_df["task"].astype(str).unique().tolist()
@@ -25,18 +26,25 @@ def solve_model(volunteers_df, preferences_df, skills_df,
     Cov = pl.LpVariable.dicts("Cov", (tasks, times, skills), 0)
     h = pl.LpVariable.dicts("hire", (tasks, times, skills), 0)
 
+    # 🎯 Objective with dynamic weights
     model += (
-        0.35 * pl.lpSum(Cov[s][t][k] for s in tasks for t in times for k in skills)
-        + 0.25 * pl.lpSum(pref.get((v, s), 0) * x[v][s][t] for v in vol for s in tasks for t in times)
-        - 0.20 * pl.lpSum(costs.get((v, s, t), 0) * x[v][s][t] for v in vol for s in tasks for t in times)
-        - 0.20 * pl.lpSum(hire_cost.get((s, t, k), 0) * h[s][t][k] for s in tasks for t in times for k in skills)
+        w_cover * pl.lpSum(Cov[s][t][k] for s in tasks for t in times for k in skills)
+        + w_pref * pl.lpSum(pref.get((v, s), 0) * x[v][s][t]
+                            for v in vol for s in tasks for t in times)
+        - w_cost * pl.lpSum(costs.get((v, s, t), 0) * x[v][s][t]
+                            for v in vol for s in tasks for t in times)
+        - w_hire * pl.lpSum(hire_cost.get((s, t, k), 0) * h[s][t][k]
+                            for s in tasks for t in times for k in skills)
     )
 
+    # Constraints
     for s in tasks:
         for t in times:
             for k in skills:
                 model += Cov[s][t][k] + h[s][t][k] == demand.get((s, t, k), 0)
-                model += Cov[s][t][k] == pl.lpSum(sigma.get((v, k), 0) * x[v][s][t] for v in vol)
+                model += Cov[s][t][k] == pl.lpSum(
+                    sigma.get((v, k), 0) * x[v][s][t] for v in vol
+                )
 
     for v in vol:
         for t in times:

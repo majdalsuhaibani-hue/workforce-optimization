@@ -172,6 +172,33 @@ def ui():
     <div class="row">
       <button class="btn" onclick="runOpt()">Run Optimization</button>
       <div>
+      <div class="card" style="margin-bottom:14px;max-width:500px">
+  <div class="label">Objective Weights</div>
+
+  <div style="margin-top:10px">
+    <label>W_cover</label>
+    <input type="number" id="w_cover" value="1" step="0.1" style="width:100%">
+  </div>
+
+  <div style="margin-top:8px">
+    <label>W_pref</label>
+    <input type="number" id="w_pref" value="1" step="0.1" style="width:100%">
+  </div>
+
+  <div style="margin-top:8px">
+    <label>W_cost</label>
+    <input type="number" id="w_cost" value="1" step="0.1" style="width:100%">
+  </div>
+
+  <div style="margin-top:8px">
+    <label>W_hire</label>
+    <input type="number" id="w_hire" value="1" step="0.1" style="width:100%">
+  </div>
+
+  <div class="hint" style="margin-top:8px">
+    Adjust weights to balance coverage, preferences, assignment cost, and hiring cost.
+  </div>
+</div>
         <div class="hint">Click Run Optimization to generate and display the results.</div>
         <div class="hint">The dashboard shows costs, volunteers, assignments, and the assignment table.</div>
         <div id="errBox" class="err"></div>

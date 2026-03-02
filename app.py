@@ -34,8 +34,15 @@ def home():
     """
 
 
+from fastapi import Query
+
 @app.get("/solve")
-def solve():
+def solve(
+    w_cover: float = Query(0.35),
+    w_pref: float = Query(0.25),
+    w_cost: float = Query(0.20),
+    w_hire: float = Query(0.20),
+):
     volunteers = read_csv("volunteers.csv")
     preferences = read_csv("preferences.csv")
     skills = read_csv("skills.csv")

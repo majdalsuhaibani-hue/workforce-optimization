@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 import pandas as pd
 from pathlib import Path
@@ -6,7 +6,6 @@ from pathlib import Path
 from solver import solve_model
 
 app = FastAPI()
-
 BASE_DIR = Path(__file__).resolve().parent
 
 
@@ -25,6 +24,27 @@ def build_hire_costs(costs_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(columns=["task", "time", "skill", "hire_cost"])
 
 
+def clamp_nonneg(x: float) -> float:
+    try:
+        x = float(x)
+    except Exception:
+        return 0.0
+    return x if x >= 0 else 0.0
+
+
+def normalize_weights(w_cover: float, w_pref: float, w_cost: float, w_hire: float):
+    w_cover = clamp_nonneg(w_cover)
+    w_pref = clamp_nonneg(w_pref)
+    w_cost = clamp_nonneg(w_cost)
+    w_hire = clamp_nonneg(w_hire)
+
+    s = w_cover + w_pref + w_cost + w_hire
+    if s <= 0:
+        return 0.25, 0.25, 0.25, 0.25
+
+    return (w_cover / s, w_pref / s, w_cost / s, w_hire / s)
+
+
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
@@ -34,8 +54,6 @@ def home():
     """
 
 
-from fastapi import Query
-
 @app.get("/solve")
 def solve(
     w_cover: float = Query(0.35),
@@ -43,6 +61,10 @@ def solve(
     w_cost: float = Query(0.20),
     w_hire: float = Query(0.20),
 ):
+    # Normalize + validate
+    w_cover, w_pref, w_cost, w_hire = normalize_weights(w_cover, w_pref, w_cost, w_hire)
+
+    # Load CSVs
     volunteers = read_csv("volunteers.csv")
     preferences = read_csv("preferences.csv")
     skills = read_csv("skills.csv")
@@ -56,8 +78,20 @@ def solve(
     except FileNotFoundError:
         hire_costs = build_hire_costs(costs)
 
+    # ✅ IMPORTANT: pass weights to the solver
+    # ⚠️ This requires solve_model to accept these keyword arguments.
     assignments_df, hires_df, summary = solve_model(
-        volunteers, preferences, skills, availability, demand, costs, hire_costs
+        volunteers,
+        preferences,
+        skills,
+        availability,
+        demand,
+        costs,
+        hire_costs,
+        w_cover=w_cover,
+        w_pref=w_pref,
+        w_cost=w_cost,
+        w_hire=w_hire,
     )
 
     # Assignment cost from costs.csv
@@ -92,6 +126,14 @@ def solve(
         "total_assignment_cost": float(total_assignment_cost),
         "total_hiring_cost": float(total_hiring_cost),
         "total_cost": float(total_assignment_cost + total_hiring_cost),
+
+        # ✅ show weights used (nice for dashboard + for doctor)
+        "weights_used": {
+            "w_cover": float(w_cover),
+            "w_pref": float(w_pref),
+            "w_cost": float(w_cost),
+            "w_hire": float(w_hire),
+        },
     }
 
     return JSONResponse(
@@ -177,57 +219,57 @@ def ui():
 
   <div class="wrap">
     <div class="row">
-    <div class="card" style="margin-bottom:14px;max-width:720px">
-  <div class="label">Objective Weights (Presets + Sliders + Auto-normalize)</div>
 
-  <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-    <select id="preset" style="padding:10px 12px;border-radius:10px;border:1px solid #e5e7eb;min-width:240px">
-      <option value="balanced" selected>Balanced (Default)</option>
-      <option value="coverage">Max Coverage</option>
-      <option value="satisfaction">Max Volunteer Satisfaction</option>
-      <option value="min_cost">Min Assignment Cost</option>
-      <option value="min_hire">Min Hiring Cost</option>
-    </select>
+      <!-- WEIGHTS CARD -->
+      <div class="card" style="margin-bottom:14px;max-width:720px">
+        <div class="label">Objective Weights (Presets + Sliders + Auto-normalize)</div>
 
-    <button class="btn" onclick="applyPreset()" type="button">Apply Preset</button>
-    <button class="btn" onclick="resetDefault()" type="button" style="background:#111827">Reset to Default</button>
-  </div>
+        <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <select id="preset" style="padding:10px 12px;border-radius:10px;border:1px solid #e5e7eb;min-width:240px">
+            <option value="balanced" selected>Balanced (Default)</option>
+            <option value="coverage">Max Coverage</option>
+            <option value="satisfaction">Max Volunteer Satisfaction</option>
+            <option value="min_cost">Min Assignment Cost</option>
+            <option value="min_hire">Min Hiring Cost</option>
+          </select>
 
-  <div class="hint" style="margin-top:10px">
-    Sliders can be any values. We auto-normalize them so that (W_cover + W_pref + W_cost + W_hire = 1).
-  </div>
+          <button class="btn" onclick="applyPreset()" type="button">Apply Preset</button>
+          <button class="btn" onclick="resetDefault()" type="button" style="background:#111827">Reset to Default</button>
+        </div>
 
-  <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
-    <div>
-      <div class="label">W_cover (Coverage)</div>
-      <input id="s_cover" type="range" min="0" max="100" value="35" oninput="updateWeightsUI()"
-             style="width:100%">
-      <div class="hint">Raw: <b id="raw_cover">35</b> | Normalized: <b id="n_cover">0.35</b></div>
-    </div>
+        <div class="hint" style="margin-top:10px">
+          Sliders can be any values. We auto-normalize them so that (W_cover + W_pref + W_cost + W_hire = 1).
+        </div>
 
-    <div>
-      <div class="label">W_pref (Preference)</div>
-      <input id="s_pref" type="range" min="0" max="100" value="25" oninput="updateWeightsUI()"
-             style="width:100%">
-      <div class="hint">Raw: <b id="raw_pref">25</b> | Normalized: <b id="n_pref">0.25</b></div>
-    </div>
+        <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+          <div>
+            <div class="label">W_cover (Coverage)</div>
+            <input id="s_cover" type="range" min="0" max="100" value="35" oninput="updateWeightsUI()" style="width:100%">
+            <div class="hint">Raw: <b id="raw_cover">35</b> | Normalized: <b id="n_cover">0.35</b></div>
+          </div>
 
-    <div>
-      <div class="label">W_cost (Assignment Cost)</div>
-      <input id="s_cost" type="range" min="0" max="100" value="20" oninput="updateWeightsUI()"
-             style="width:100%">
-      <div class="hint">Raw: <b id="raw_cost">20</b> | Normalized: <b id="n_cost">0.20</b></div>
-    </div>
+          <div>
+            <div class="label">W_pref (Preference)</div>
+            <input id="s_pref" type="range" min="0" max="100" value="25" oninput="updateWeightsUI()" style="width:100%">
+            <div class="hint">Raw: <b id="raw_pref">25</b> | Normalized: <b id="n_pref">0.25</b></div>
+          </div>
 
-    <div>
-      <div class="label">W_hire (Hiring Cost)</div>
-      <input id="s_hire" type="range" min="0" max="100" value="20" oninput="updateWeightsUI()"
-             style="width:100%">
-      <div class="hint">Raw: <b id="raw_hire">20</b> | Normalized: <b id="n_hire">0.20</b></div>
-    </div>
-  </div>
-</div>
+          <div>
+            <div class="label">W_cost (Assignment Cost)</div>
+            <input id="s_cost" type="range" min="0" max="100" value="20" oninput="updateWeightsUI()" style="width:100%">
+            <div class="hint">Raw: <b id="raw_cost">20</b> | Normalized: <b id="n_cost">0.20</b></div>
+          </div>
+
+          <div>
+            <div class="label">W_hire (Hiring Cost)</div>
+            <input id="s_hire" type="range" min="0" max="100" value="20" oninput="updateWeightsUI()" style="width:100%">
+            <div class="hint">Raw: <b id="raw_hire">20</b> | Normalized: <b id="n_hire">0.20</b></div>
+          </div>
+        </div>
+      </div>
+
       <button class="btn" onclick="runOpt()">Run Optimization</button>
+
       <div>
         <div class="hint">Click Run Optimization to generate and display the results.</div>
         <div class="hint">The dashboard shows costs, volunteers, assignments, and the assignment table.</div>
@@ -327,6 +369,7 @@ function buildBarChart(canvasId, labels, values, title){
     }
   });
 }
+
 function getRawWeights(){
   return {
     cover: Number(document.getElementById("s_cover").value || 0),
@@ -389,24 +432,24 @@ function resetDefault(){
   applyPreset();
 }
 
-// تحديث أول ما تفتح الصفحة
 updateWeightsUI();
+
 async function runOpt(){
   clearErr();
 
   let r;
   try{
- const raw = getRawWeights();
-const n = normalizeWeights(raw);
+    const raw = getRawWeights();
+    const n = normalizeWeights(raw);
 
-const qs = new URLSearchParams({
-  w_cover: n.cover,
-  w_pref:  n.pref,
-  w_cost:  n.cost,
-  w_hire:  n.hire
-}).toString();
+    const qs = new URLSearchParams({
+      w_cover: n.cover.toFixed(4),
+      w_pref:  n.pref.toFixed(4),
+      w_cost:  n.cost.toFixed(4),
+      w_hire:  n.hire.toFixed(4)
+    }).toString();
 
-r = await fetch("/solve?" + qs, { cache: "no-store" });
+    r = await fetch("/solve?" + qs, { cache: "no-store" });
   }catch(e){
     showErr("Network error while calling /solve\\n" + e);
     return;

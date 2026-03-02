@@ -320,7 +320,70 @@ function buildBarChart(canvasId, labels, values, title){
     }
   });
 }
+function getRawWeights(){
+  return {
+    cover: Number(document.getElementById("s_cover").value || 0),
+    pref:  Number(document.getElementById("s_pref").value || 0),
+    cost:  Number(document.getElementById("s_cost").value || 0),
+    hire:  Number(document.getElementById("s_hire").value || 0),
+  };
+}
 
+function normalizeWeights(w){
+  const sum = w.cover + w.pref + w.cost + w.hire;
+  if (sum <= 0){
+    return { cover: 0.25, pref: 0.25, cost: 0.25, hire: 0.25 };
+  }
+  return {
+    cover: w.cover / sum,
+    pref:  w.pref  / sum,
+    cost:  w.cost  / sum,
+    hire:  w.hire  / sum,
+  };
+}
+
+function updateWeightsUI(){
+  const raw = getRawWeights();
+  const n = normalizeWeights(raw);
+
+  document.getElementById("raw_cover").textContent = raw.cover;
+  document.getElementById("raw_pref").textContent  = raw.pref;
+  document.getElementById("raw_cost").textContent  = raw.cost;
+  document.getElementById("raw_hire").textContent  = raw.hire;
+
+  document.getElementById("n_cover").textContent = n.cover.toFixed(2);
+  document.getElementById("n_pref").textContent  = n.pref.toFixed(2);
+  document.getElementById("n_cost").textContent  = n.cost.toFixed(2);
+  document.getElementById("n_hire").textContent  = n.hire.toFixed(2);
+}
+
+function applyPreset(){
+  const presets = {
+    balanced:     { cover:35, pref:25, cost:20, hire:20 },
+    coverage:     { cover:70, pref:20, cost:5,  hire:5  },
+    satisfaction: { cover:20, pref:70, cost:5,  hire:5  },
+    min_cost:     { cover:20, pref:20, cost:50, hire:10 },
+    min_hire:     { cover:20, pref:20, cost:10, hire:50 }
+  };
+
+  const key = document.getElementById("preset").value;
+  const p = presets[key] || presets.balanced;
+
+  document.getElementById("s_cover").value = p.cover;
+  document.getElementById("s_pref").value  = p.pref;
+  document.getElementById("s_cost").value  = p.cost;
+  document.getElementById("s_hire").value  = p.hire;
+
+  updateWeightsUI();
+}
+
+function resetDefault(){
+  document.getElementById("preset").value = "balanced";
+  applyPreset();
+}
+
+// تحديث أول ما تفتح الصفحة
+updateWeightsUI();
 async function runOpt(){
   clearErr();
 

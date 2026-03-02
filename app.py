@@ -1,15 +1,23 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 import pandas as pd
 from pathlib import Path
+import shutil
 
 from solver import solve_model
 
 app = FastAPI()
+
 BASE_DIR = Path(__file__).resolve().parent
+UPLOAD_DIR = BASE_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 
 def read_csv(name: str) -> pd.DataFrame:
+    up_path = UPLOAD_DIR / name
+    if up_path.exists():
+        return pd.read_csv(up_path)
+
     path = BASE_DIR / name
     if not path.exists():
         raise FileNotFoundError(f"Missing file: {name} (expected at {path})")
@@ -24,27 +32,6 @@ def build_hire_costs(costs_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(columns=["task", "time", "skill", "hire_cost"])
 
 
-def clamp_nonneg(x: float) -> float:
-    try:
-        x = float(x)
-    except Exception:
-        return 0.0
-    return x if x >= 0 else 0.0
-
-
-def normalize_weights(w_cover: float, w_pref: float, w_cost: float, w_hire: float):
-    w_cover = clamp_nonneg(w_cover)
-    w_pref = clamp_nonneg(w_pref)
-    w_cost = clamp_nonneg(w_cost)
-    w_hire = clamp_nonneg(w_hire)
-
-    s = w_cover + w_pref + w_cost + w_hire
-    if s <= 0:
-        return 0.25, 0.25, 0.25, 0.25
-
-    return (w_cover / s, w_pref / s, w_cost / s, w_hire / s)
-
-
 @app.get("/", response_class=HTMLResponse)
 def home():
     return """
@@ -54,6 +41,44 @@ def home():
     """
 
 
+@app.post("/upload")
+async def upload(files: list[UploadFile] = File(...)):
+    allowed = {
+        "volunteers.csv",
+        "preferences.csv",
+        "skills.csv",
+        "availability.csv",
+        "demand.csv",
+        "costs.csv",
+        "hire_costs.csv",
+    }
+
+    saved = []
+    for f in files:
+        if f.filename not in allowed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File not allowed: {f.filename}. Allowed: {sorted(list(allowed))}",
+            )
+
+        dest = UPLOAD_DIR / f.filename
+        with dest.open("wb") as buffer:
+            shutil.copyfileobj(f.file, buffer)
+
+        saved.append(f.filename)
+
+    return {"status": "ok", "saved": saved}
+
+
+@app.post("/reset-data")
+def reset_data():
+    deleted = []
+    for f in UPLOAD_DIR.glob("*.csv"):
+        deleted.append(f.name)
+        f.unlink()
+    return {"status": "reset", "deleted": deleted}
+
+
 @app.get("/solve")
 def solve(
     w_cover: float = Query(0.35),
@@ -61,10 +86,6 @@ def solve(
     w_cost: float = Query(0.20),
     w_hire: float = Query(0.20),
 ):
-    # Normalize + validate
-    w_cover, w_pref, w_cost, w_hire = normalize_weights(w_cover, w_pref, w_cost, w_hire)
-
-    # Load CSVs
     volunteers = read_csv("volunteers.csv")
     preferences = read_csv("preferences.csv")
     skills = read_csv("skills.csv")
@@ -72,14 +93,11 @@ def solve(
     demand = read_csv("demand.csv")
     costs = read_csv("costs.csv")
 
-    # hire_costs.csv optional (fallback from costs.csv if available)
     try:
         hire_costs = read_csv("hire_costs.csv")
     except FileNotFoundError:
         hire_costs = build_hire_costs(costs)
 
-    # ✅ IMPORTANT: pass weights to the solver
-    # ⚠️ This requires solve_model to accept these keyword arguments.
     assignments_df, hires_df, summary = solve_model(
         volunteers,
         preferences,
@@ -94,7 +112,6 @@ def solve(
         w_hire=w_hire,
     )
 
-    # Assignment cost from costs.csv
     total_assignment_cost = 0.0
     if not assignments_df.empty:
         merged = assignments_df.merge(
@@ -106,7 +123,6 @@ def solve(
         if "cost" in merged.columns:
             total_assignment_cost = float(merged["cost"].fillna(0).sum())
 
-    # Hiring cost from hire_costs (qty * hire_cost)
     total_hiring_cost = 0.0
     total_external_hires_qty = 0.0
     if not hires_df.empty:
@@ -117,7 +133,19 @@ def solve(
                 on=["task", "time", "skill"],
                 how="left",
             )
-            total_hiring_cost = float((h["qty"].fillna(0) * h["hire_cost"].fillna(0)).sum())
+            total_hiring_cost = float(
+                (h["qty"].fillna(0) * h["hire_cost"].fillna(0)).sum()
+            )
+
+    using_uploaded = any((UPLOAD_DIR / n).exists() for n in [
+        "volunteers.csv",
+        "preferences.csv",
+        "skills.csv",
+        "availability.csv",
+        "demand.csv",
+        "costs.csv",
+        "hire_costs.csv",
+    ])
 
     meta = {
         "total_volunteers": int(len(volunteers)),
@@ -126,14 +154,13 @@ def solve(
         "total_assignment_cost": float(total_assignment_cost),
         "total_hiring_cost": float(total_hiring_cost),
         "total_cost": float(total_assignment_cost + total_hiring_cost),
-
-        # ✅ show weights used (nice for dashboard + for doctor)
         "weights_used": {
             "w_cover": float(w_cover),
             "w_pref": float(w_pref),
             "w_cost": float(w_cost),
             "w_hire": float(w_hire),
         },
+        "data_source": "uploaded" if using_uploaded else "default",
     }
 
     return JSONResponse(
@@ -171,6 +198,10 @@ def ui():
     .btn{
       background:var(--accent);color:#fff;border:0;border-radius:12px;
       padding:12px 16px;font-weight:800;cursor:pointer;box-shadow:0 12px 20px rgba(37,99,235,.18)
+    }
+    .btnSecondary{
+      background:#111827;color:#fff;border:0;border-radius:12px;
+      padding:12px 16px;font-weight:800;cursor:pointer
     }
     .hint{color:var(--muted);margin-top:6px}
     .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-top:14px}
@@ -210,6 +241,14 @@ def ui():
       background:#fff1f2;border:1px solid #fecdd3;color:#9f1239;
       padding:10px 12px;font-size:13px;white-space:pre-wrap
     }
+    input[type="file"]{padding:10px 0}
+    .badge{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:8px 10px;border-radius:999px;font-weight:800;font-size:12px;
+      border:1px solid rgba(229,231,235,.9);background:#fff
+    }
+    .dot{width:8px;height:8px;border-radius:999px;background:#10b981}
+    .dot.default{background:#3b82f6}
   </style>
 </head>
 <body>
@@ -220,7 +259,20 @@ def ui():
   <div class="wrap">
     <div class="row">
 
-      <!-- WEIGHTS CARD -->
+      <div class="card" style="margin-bottom:14px;max-width:720px">
+        <div class="label">Upload Data Files (CSV)</div>
+        <div class="hint" style="margin-top:8px">
+          Upload your CSV files (optional). Uploaded files will be used instead of the default data.
+        </div>
+
+        <input id="fileInput" type="file" multiple accept=".csv" style="margin-top:10px;width:100%">
+        <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <button class="btn" type="button" onclick="uploadFiles()">Upload Files</button>
+          <button class="btnSecondary" type="button" onclick="resetData()">Use Default Data</button>
+          <div id="uploadMsg" class="hint"></div>
+        </div>
+      </div>
+
       <div class="card" style="margin-bottom:14px;max-width:720px">
         <div class="label">Objective Weights (Presets + Sliders + Auto-normalize)</div>
 
@@ -234,11 +286,22 @@ def ui():
           </select>
 
           <button class="btn" onclick="applyPreset()" type="button">Apply Preset</button>
-          <button class="btn" onclick="resetDefault()" type="button" style="background:#111827">Reset to Default</button>
+          <button class="btnSecondary" onclick="resetDefault()" type="button">Reset to Default</button>
         </div>
 
         <div class="hint" style="margin-top:10px">
-          Sliders can be any values. We auto-normalize them so that (W_cover + W_pref + W_cost + W_hire = 1).
+          Step 1: (Optional) Upload the CSV data files using “Upload Files”.
+        </div>
+        <div class="hint">Step 2: Adjust the objective weights using the sliders.</div>
+        <div class="hint">Step 3: Click “Run Optimization” to solve and update the dashboard.</div>
+
+        <div class="hint" style="margin-top:8px">
+          <b>Raw</b> is your input priority on a 0–100 scale (higher value = higher importance for that objective).
+          The sliders can take any values.
+        </div>
+        <div class="hint">
+          <b>Normalization</b> means we automatically convert the raw values into proportions that always sum to 1
+          (W_cover + W_pref + W_cost + W_hire = 1). This keeps the weights comparable and stable for the solver.
         </div>
 
         <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
@@ -268,11 +331,10 @@ def ui():
         </div>
       </div>
 
-      <button class="btn" onclick="runOpt()">Run Optimization</button>
+      <button class="btn" onclick="runOpt()" style="height:48px">Run Optimization</button>
 
-      <div>
-        <div class="hint">Click Run Optimization to generate and display the results.</div>
-        <div class="hint">The dashboard shows costs, volunteers, assignments, and the assignment table.</div>
+      <div style="min-width:260px">
+        <div id="dataBadge" class="badge"><span class="dot default"></span><span>Using default data</span></div>
         <div id="errBox" class="err"></div>
       </div>
     </div>
@@ -345,6 +407,15 @@ function clearErr(){
   box.textContent = "";
 }
 
+function setBadge(source){
+  const b = document.getElementById("dataBadge");
+  if (source === "uploaded"){
+    b.innerHTML = '<span class="dot"></span><span>Using uploaded data</span>';
+  } else {
+    b.innerHTML = '<span class="dot default"></span><span>Using default data</span>';
+  }
+}
+
 function buildBarChart(canvasId, labels, values, title){
   const ctx = document.getElementById(canvasId);
   const maxVal = values.length ? Math.max(...values) : 0;
@@ -352,22 +423,73 @@ function buildBarChart(canvasId, labels, values, title){
 
   return new Chart(ctx, {
     type: 'bar',
-    data: {
-      labels,
-      datasets: [{ label: title, data: values }]
-    },
+    data: { labels, datasets: [{ label: title, data: values }] },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       scales: {
-        y: {
-          beginAtZero: true,
-          suggestedMax,
-          ticks: { stepSize: 1 }
-        }
+        y: { beginAtZero: true, suggestedMax, ticks: { stepSize: 1 } }
       }
     }
   });
+}
+
+async function uploadFiles(){
+  clearErr();
+  const inp = document.getElementById("fileInput");
+  const msg = document.getElementById("uploadMsg");
+  msg.textContent = "";
+
+  if (!inp.files || inp.files.length === 0){
+    msg.textContent = "Please choose CSV files first.";
+    return;
+  }
+
+  const form = new FormData();
+  for (const f of inp.files){
+    form.append("files", f);
+  }
+
+  let r;
+  try{
+    r = await fetch("/upload", { method:"POST", body: form });
+  }catch(e){
+    showErr("Network error while calling /upload\\n" + e);
+    return;
+  }
+
+  const t = await r.text();
+  if (!r.ok){
+    showErr("Error from /upload (" + r.status + ")\\n" + t);
+    return;
+  }
+
+  const data = JSON.parse(t);
+  msg.textContent = "Uploaded ✅: " + (data.saved || []).join(", ");
+  setBadge("uploaded");
+}
+
+async function resetData(){
+  clearErr();
+  const msg = document.getElementById("uploadMsg");
+  msg.textContent = "";
+
+  let r;
+  try{
+    r = await fetch("/reset-data", { method:"POST" });
+  }catch(e){
+    showErr("Network error while calling /reset-data\\n" + e);
+    return;
+  }
+
+  const t = await r.text();
+  if (!r.ok){
+    showErr("Error from /reset-data (" + r.status + ")\\n" + t);
+    return;
+  }
+
+  msg.textContent = "Reset to default data ✅";
+  setBadge("default");
 }
 
 function getRawWeights(){
@@ -443,10 +565,10 @@ async function runOpt(){
     const n = normalizeWeights(raw);
 
     const qs = new URLSearchParams({
-      w_cover: n.cover.toFixed(4),
-      w_pref:  n.pref.toFixed(4),
-      w_cost:  n.cost.toFixed(4),
-      w_hire:  n.hire.toFixed(4)
+      w_cover: n.cover,
+      w_pref:  n.pref,
+      w_cost:  n.cost,
+      w_hire:  n.hire
     }).toString();
 
     r = await fetch("/solve?" + qs, { cache: "no-store" });
@@ -465,7 +587,6 @@ async function runOpt(){
   const s = data.summary || {};
   const meta = data.meta || {};
   const assignments = data.assignments || [];
-  const hires = data.external_hires || [];
 
   document.getElementById("status").textContent = fmt(s.status);
   document.getElementById("objective").textContent = fmt(s.objective_value);
@@ -476,7 +597,9 @@ async function runOpt(){
   document.getElementById("asgCost").textContent = fmt(meta.total_assignment_cost);
   document.getElementById("hireCost").textContent = fmt(meta.total_hiring_cost);
   document.getElementById("totalCost").textContent = fmt(meta.total_cost);
-  document.getElementById("nHire").textContent = (typeof meta.total_external_hires_qty === "number") ? meta.total_external_hires_qty : hires.length;
+  document.getElementById("nHire").textContent = (typeof meta.total_external_hires_qty === "number") ? meta.total_external_hires_qty : "-";
+
+  setBadge(meta.data_source || "default");
 
   const body = document.getElementById("asgBody");
   body.innerHTML = "";
@@ -495,7 +618,6 @@ async function runOpt(){
     }
   }
 
-  // Charts
   const taskCounts = {};
   for (const a of assignments){
     taskCounts[a.task] = (taskCounts[a.task] || 0) + 1;

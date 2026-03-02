@@ -170,6 +170,56 @@ def ui():
 
   <div class="wrap">
     <div class="row">
+    <div class="card" style="margin-bottom:14px;max-width:720px">
+  <div class="label">Objective Weights (Presets + Sliders + Auto-normalize)</div>
+
+  <div style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <select id="preset" style="padding:10px 12px;border-radius:10px;border:1px solid #e5e7eb;min-width:240px">
+      <option value="balanced" selected>Balanced (Default)</option>
+      <option value="coverage">Max Coverage</option>
+      <option value="satisfaction">Max Volunteer Satisfaction</option>
+      <option value="min_cost">Min Assignment Cost</option>
+      <option value="min_hire">Min Hiring Cost</option>
+    </select>
+
+    <button class="btn" onclick="applyPreset()" type="button">Apply Preset</button>
+    <button class="btn" onclick="resetDefault()" type="button" style="background:#111827">Reset to Default</button>
+  </div>
+
+  <div class="hint" style="margin-top:10px">
+    Sliders can be any values. We auto-normalize them so that (W_cover + W_pref + W_cost + W_hire = 1).
+  </div>
+
+  <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr;gap:14px">
+    <div>
+      <div class="label">W_cover (Coverage)</div>
+      <input id="s_cover" type="range" min="0" max="100" value="35" oninput="updateWeightsUI()"
+             style="width:100%">
+      <div class="hint">Raw: <b id="raw_cover">35</b> | Normalized: <b id="n_cover">0.35</b></div>
+    </div>
+
+    <div>
+      <div class="label">W_pref (Preference)</div>
+      <input id="s_pref" type="range" min="0" max="100" value="25" oninput="updateWeightsUI()"
+             style="width:100%">
+      <div class="hint">Raw: <b id="raw_pref">25</b> | Normalized: <b id="n_pref">0.25</b></div>
+    </div>
+
+    <div>
+      <div class="label">W_cost (Assignment Cost)</div>
+      <input id="s_cost" type="range" min="0" max="100" value="20" oninput="updateWeightsUI()"
+             style="width:100%">
+      <div class="hint">Raw: <b id="raw_cost">20</b> | Normalized: <b id="n_cost">0.20</b></div>
+    </div>
+
+    <div>
+      <div class="label">W_hire (Hiring Cost)</div>
+      <input id="s_hire" type="range" min="0" max="100" value="20" oninput="updateWeightsUI()"
+             style="width:100%">
+      <div class="hint">Raw: <b id="raw_hire">20</b> | Normalized: <b id="n_hire">0.20</b></div>
+    </div>
+  </div>
+</div>
       <button class="btn" onclick="runOpt()">Run Optimization</button>
       <div>
       <div class="card" style="margin-bottom:14px;max-width:500px">

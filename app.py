@@ -389,7 +389,17 @@ async function runOpt(){
 
   let r;
   try{
-    r = await fetch("/solve", { cache: "no-store" });
+ const raw = getRawWeights();
+const n = normalizeWeights(raw);
+
+const qs = new URLSearchParams({
+  w_cover: n.cover,
+  w_pref:  n.pref,
+  w_cost:  n.cost,
+  w_hire:  n.hire
+}).toString();
+
+r = await fetch("/solve?" + qs, { cache: "no-store" });
   }catch(e){
     showErr("Network error while calling /solve\\n" + e);
     return;

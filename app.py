@@ -263,6 +263,59 @@ def ui():
         <div class="label">Upload Data Files (CSV)</div>
         <div class="hint" style="margin-top:8px">
           Upload your CSV files (optional). Uploaded files will be used instead of the default data.
+          <div class="note" style="margin-top:10px">
+
+  <b>Custom Data Upload (Optional)</b><br><br>
+
+  You may upload your own CSV files if you want to run the optimization using custom data instead of the default dataset provided in the system.
+
+  Please ensure the uploaded files follow the structure below:
+
+  <table style="width:100%; border-collapse:collapse; margin-top:8px">
+
+    <tr style="background:#f3f4f6">
+      <th style="padding:6px;border:1px solid #e5e7eb">File Name</th>
+      <th style="padding:6px;border:1px solid #e5e7eb">Required Columns</th>
+    </tr>
+
+    <tr>
+      <td style="padding:6px;border:1px solid #e5e7eb">volunteers.csv</td>
+      <td style="padding:6px;border:1px solid #e5e7eb">volunteer_id</td>
+    </tr>
+
+    <tr>
+      <td style="padding:6px;border:1px solid #e5e7eb">preferences.csv</td>
+      <td style="padding:6px;border:1px solid #e5e7eb">volunteer_id, task, preference</td>
+    </tr>
+
+    <tr>
+      <td style="padding:6px;border:1px solid #e5e7eb">skills.csv</td>
+      <td style="padding:6px;border:1px solid #e5e7eb">volunteer_id, skill, has_skill</td>
+    </tr>
+
+    <tr>
+      <td style="padding:6px;border:1px solid #e5e7eb">availability.csv</td>
+      <td style="padding:6px;border:1px solid #e5e7eb">volunteer_id, time, available</td>
+    </tr>
+
+    <tr>
+      <td style="padding:6px;border:1px solid #e5e7eb">demand.csv</td>
+      <td style="padding:6px;border:1px solid #e5e7eb">task, time, skill, demand</td>
+    </tr>
+
+    <tr>
+      <td style="padding:6px;border:1px solid #e5e7eb">costs.csv</td>
+      <td style="padding:6px;border:1px solid #e5e7eb">volunteer_id, task, time, cost</td>
+    </tr>
+
+    <tr>
+      <td style="padding:6px;border:1px solid #e5e7eb">hire_costs.csv</td>
+      <td style="padding:6px;border:1px solid #e5e7eb">task, time, skill, hire_cost</td>
+    </tr>
+
+  </table>
+
+</div>
         </div>
 
         <input id="fileInput" type="file" multiple accept=".csv" style="margin-top:10px;width:100%">
